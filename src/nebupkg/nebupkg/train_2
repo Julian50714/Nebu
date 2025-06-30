@@ -1,0 +1,98 @@
+import numpy as np
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+import os
+from tensorflow.keras.preprocessing.image import load_img, img_to_array
+
+def cargar_rafdb(ruta_raiz, tipo="train"):
+    # Cambia el nombre del archivo de etiquetas si es necesario
+    ruta_etiquetas = os.path.join(ruta_raiz, "EmoLabel", "list_partition_label.txt")
+    if not os.path.exists(ruta_etiquetas):
+        # Usa otro nombre si el archivo es diferente, por ejemplo "list_partition.txt"
+        ruta_etiquetas = os.path.join(ruta_raiz, "EmoLabel", "list_partition.txt")
+        if not os.path.exists(ruta_etiquetas):
+            raise FileNotFoundError(f"Archivo de etiquetas no encontrado en {ruta_etiquetas}")
+
+    print(f"📄 Leyendo etiquetas para {tipo}...")
+
+    with open(ruta_etiquetas, "r") as f:
+        lineas = f.readlines()
+
+    lista_imagenes = []
+    lista_labels = []
+
+    for linea in lineas:
+        parts = linea.strip().split(" ")
+        if len(parts) != 3:
+            continue
+        nombre_img, particion, etiqueta = parts
+        if particion == tipo:
+            lista_imagenes.append(nombre_img)
+            lista_labels.append(int(etiqueta))
+
+    print(f"✅ Se encontraron {len(lista_imagenes)} imágenes para {tipo}.")
+
+    X = []
+    y = []
+
+    for i, img_name in enumerate(lista_imagenes):
+        img_path = os.path.join(ruta_raiz, "Image", img_name)
+        if not os.path.exists(img_path):
+            print(f"⚠️ Imagen no encontrada: {img_path}, se omite")
+            continue
+        img = load_img(img_path, target_size=(100, 100))
+        img = img_to_array(img) / 255.0
+        X.append(img)
+        y.append(lista_labels[i])
+
+    X = np.array(X)
+    y = to_categorical(np.array(y), num_classes=7)
+
+    print(f"Shape X: {X.shape}")
+    print(f"Shape y: {y.shape}")
+
+    return X, y
+
+def crear_modelo():
+    model = Sequential([
+        Conv2D(32, (3,3), activation='relu', input_shape=(100,100,3)),
+        MaxPooling2D((2,2)),
+        Conv2D(64, (3,3), activation='relu'),
+        MaxPooling2D((2,2)),
+        Conv2D(128, (3,3), activation='relu'),
+        MaxPooling2D((2,2)),
+        Flatten(),
+        Dense(128, activation='relu'),
+        Dropout(0.5),
+        Dense(7, activation='softmax')
+    ])
+    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+    return model
+
+if __name__ == "__main__":
+    ruta_rafdb = "./archive/rafdb_basic"  # Ajusta según la ubicación de tus datos
+
+    print("Cargando datos...")
+    X_train, y_train = cargar_rafdb(ruta_rafdb, tipo="train")
+    X_test, y_test = cargar_rafdb(ruta_rafdb, tipo="test")
+
+    print("Creando modelo...")
+    model = crear_modelo()
+
+    print("Entrenando modelo...")
+    history = model.fit(
+        X_train, y_train,
+        epochs=30,
+        batch_size=64,
+        validation_data=(X_test, y_test)
+    )
+
+    print("Evaluando modelo en test...")
+    loss, accuracy = model.evaluate(X_test, y_test)
+    print(f"Test loss: {loss:.4f}, Test accuracy: {accuracy:.4f}")
+
+    print("Guardando modelo...")
+    model.save("rafdb_model.h5")
+
+    print("¡Entrenamiento completado!")
